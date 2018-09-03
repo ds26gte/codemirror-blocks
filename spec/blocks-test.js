@@ -174,7 +174,6 @@ describe('The CodeMirrorBlocks Class', function() {
       it("should return marks with findMarks", function() {
         let marks = this.blocks.findMarks(this.literal1.from, this.literal1.to);
         expect(marks.length).toBe(1);
-
         marks = this.blocks.findMarks(this.literal1.from, this.expression.to);
         expect(marks.length).toBe(2);
       });
