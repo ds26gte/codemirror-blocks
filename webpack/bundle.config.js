@@ -56,7 +56,7 @@ var configs = [
       'codemirror': 'CodeMirror',
       'ast': 'CodeMirrorBlocks.ast'
     }
-  })
+  }),
   // everything needed to drop into WeScheme
   _.extend({}, baseConfig(), {
     entry: {
