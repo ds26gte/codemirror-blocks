@@ -1,3 +1,4 @@
+import {poscmp} from './utils';
 const uuidv4 = require('uuid/v4');
 import {poscmp} from './blocks';
 
@@ -20,12 +21,67 @@ function adjustForChange(pos, change, from) {
   return {line: line, ch: ch};
 }
 
-// pathIsIndependentOfChangePath : [Path], [Path] -> Boolean
-// a path is independant if it points above, before, or after the change
-function pathIsIndependentOfChangePath(pathArray, changeArray) {
-  return pathArray.length < changeArray.length       ||     // above: shorter paths are "above" the change point
-    pathArray.findIndex((v, i) => (v<changeArray[i]) ||     // before: the node - or any ancestor - is a younger sibling of the change
-      (v>changeArray[i] && i<changeArray.length-2)) > -1;   // after: any *ancestor only* is an older sibling
+// Ensure that no node in the set is the ancestor of another node in the set
+function removeChildren(nodes) {
+  let clean = [...nodes].sort((a, b) => a.path<b.path? -1 : a.path==b.path? 0 : 1);
+  clean.reduce((n1, n2) => n2.path.includes(n1.path)? nodes.delete(n2) && n1 : n2, false);
+  return nodes;
+}
+
+// given an oldAST, newAST and changeset, mark what was deleted+inserted
+function markChanges(oldAST, newAST, changes) {
+  let rangeMap = [];
+  changes.forEach((c, i) => {
+    // update all the ranges we've seen to the latest coordinate system
+    rangeMap[i] = {from: c.from, to: c.to};
+    rangeMap.forEach(r => {
+      r.from = adjustForChange(r.from, c, true ); 
+      r.to   = adjustForChange(r.to  , c, false);
+    });
+    // save deleted sequences of old nodes to our rangeMap, then update old nodes coordinates
+    rangeMap[i].deleted = oldAST.getNodesBetween(c.from, c.to);
+    oldAST.nodeIdMap.forEach(n => {
+      n.from = adjustForChange(n.from, c, true );
+      n.to   = adjustForChange(n.to,   c, false);
+    });
+  });
+  // Replaced nodes - and the parents of inserted/deleted nodes - are dirty
+  rangeMap.forEach(r => {
+    let inserted = newAST.getNodesBetween(r.from, r.to);
+    if(inserted.length === r.deleted.length) { r.deleted.forEach(n => n.dirty = true); }
+    else {
+      r.deleted.forEach(n => { n.deleted  = true; (oldAST.getNodeParent(n) || n).dirty = true; });
+      inserted.forEach( n => { n.inserted = true; (newAST.getNodeParent(n) || n).dirty = true; });
+    }
+  });
+}
+
+// patch : AST, AST, [ChangeObjs] -> AST
+// FOR NOW: ASSUMES ALL CHANGES BOUNDARIES ARE NODE BOUNDARIES
+// produce the new AST, preserving all the unchanged DOM nodes from the old AST
+// and a set of nodes that must be re-rendered
+export function patch(oldAST, newAST, CMchanges) {
+  markChanges(oldAST, newAST, CMchanges); // mark dirty, deleted and inserted nodes as such
+  let newNodes = [...newAST.nodeIdMap.values()], newIdx = 0;
+  let oldNodes = [...oldAST.nodeIdMap.values()];
+  
+  // walk through the nodes, unifying those that are unchanged
+  oldNodes.forEach(oldNode => {
+    let newNode = newNodes[newIdx];
+    // (1) Read ahead to the 1st non-inserted newNode. (2) If we're out of newNodes
+    // or the oldNode was deleted, return and iterate over the next oldNode. 
+    while(newNode && newNodes[newIdx].inserted) { newNode = newNodes[++newIdx];  }
+    if(!newNode || oldNode.deleted) { return; }
+    // These are matching nodes -- unify properties
+    newNodes[newIdx].id     = oldNode.id;       // for react reconciliation later
+    newNodes[newIdx].el     = oldNode.el;       // for OLD DRAWING CODE
+    newNodes[newIdx].dirty |= oldNode.dirty;    // for OLD DRAWING CODE
+    newIdx++;
+  });
+  newAST.dirtyNodes = removeChildren(new Set(newNodes.filter(n => n.dirty)));
+  newAST.annotateNodes();
+  console.log(...newAST.dirtyNodes);
+  return newAST;
 }
 
 function posWithinNode(pos, node) {
@@ -72,8 +128,6 @@ export class AST {
     this.nodePathMap = new Map();
     this.nextNodeMap = new WeakMap();
     this.prevNodeMap = new WeakMap();
-
-    this.lastNode = null;
     this.annotateNodes();
   }
 
@@ -85,92 +139,29 @@ export class AST {
   // walk through the siblings, assigning aria-* attributes
   // and populating various maps for tree navigation
   annotateNodes(nodes=this.rootNodes, parent=false) {
-    nodes.forEach((node, i) => {
-      node.path = parent? parent.path + (","+i) : i.toString();
-      node["aria-setsize"]  = nodes.length;
-      node["aria-posinset"] = i+1;
-      node["aria-level"]    = 1+(parent? parent.path.split(",").length : 0);
-      if (this.lastNode) {
-        this.nextNodeMap.set(this.lastNode, node);
-        this.prevNodeMap.set(node, this.lastNode);
-      }
-      this.nodeIdMap.set(node.id, node);
-      this.nodePathMap.set(node.path, node);
-      this.lastNode = node;
-      var children = [...node.children()];
-      this.annotateNodes(children, node);
-    });
-  } 
+    this.nodeIdMap.clear();
+    this.nodePathMap.clear();
+    let lastNode = null;
 
-  // patch : Parser, String, [ChangeObjs] -> AST
-  // produce the new AST, preserving all the unchanged DOM nodes from the old AST
-  // FOR NOW: ASSUMES ALL CHANGES BOUNDARIES ARE NODE BOUNDARIES
-  // FIXME: Once React is in place, all we care about is which roots to update
-  patch(parse, newAST, CMchanges) {
-    let oldAST = this, dirtyNodes = new Set();
-
-    // For each CM change: (1) compute a sibling shift at the relevant path and 
-    // (2) update the text posns in the AST to reflect the post-change coordinates
-    let pathChanges = CMchanges.map(change => {
-      let {from, to, text, removed} = change;
-      // trim whitespace from change object, and figure out how many siblings are added/removed
-      let startWS = removed[0].match(/^\s+/), endWS = removed[removed.length-1].match(/\s+$/);
-      if(startWS) { from.ch += startWS[0].length; }
-      if(endWS)   { to.ch   -= endWS[0].length;   }
-      let insertedSiblings = parse( text.join('\n')  ).rootNodes.length;
-      let removedSiblings  = parse(removed.join('\n')).rootNodes.length;
-      let path = oldAST.getCommonAncestor(from, to), node = oldAST.getNodeByPath(path);
-      let replacing = node && (poscmp(node.from, from)==0 && poscmp(node.to, to)==0);
-      // if there's no path, or we're not replacing, search for the previous sibling
-      if(!path || !replacing) {
-        let siblings = path? [...oldAST.getNodeByPath(path).children()] : oldAST.rootNodes;
-        let spliceIndex = siblings.findIndex(n => poscmp(from, n.from) <= 0);
-        if(spliceIndex == -1) spliceIndex = siblings.length;
-        path = (path ? path+',' : "") + spliceIndex;
-      }
-      oldAST.nodeIdMap.forEach(n => {
-        n.from = adjustForChange(n.from, change, true );
-        n.to   = adjustForChange(n.to,   change, false);
-      });
-      return {path: path, added: insertedSiblings, removed: removedSiblings };
-    });
-    // for each pathChange, nullify removed nodes and adjust the paths of affected nodes
-    pathChanges.forEach(change => {
-      let shift = change.added - change.removed;
-      // force a re-render on the parent, since parent nodeType could change
-      if(shift == 0) { oldAST.nodeIdMap.delete(oldAST.getNodeByPath(change.path).id); return; }
-      let cArray = change.path.split(',').map(Number);
-      let changeDepth = cArray.length-1, changeIdx = cArray[changeDepth];
-      oldAST.nodeIdMap.forEach((node, id) => {
-        let pArray = node.path.split(',').map(Number);
-        // if the node is independent of the change, just return
-        // BUG: inserting a last child could update the parent - let React handle it
-        if(pathIsIndependentOfChangePath(pArray, cArray)) { return; }
-        // If it's being removed, delete from nodeIdMap and mark its parent as dirty (if it has one)
-        // Otherwise just update the path of other post-change nodes by +shift
-        if(pArray[changeDepth] < (changeIdx + change.removed)) {
-          let parent  = oldAST.getNodeParent(node);
-          if(parent) { dirtyNodes.add(parent); }
-          oldAST.nodeIdMap.delete(id);
-        } else {
-          pArray[changeDepth] += shift;
-          node.path = pArray.join(',');
+    const loop = (nodes, parent) => {
+      nodes.forEach((node, i) => {
+        node.path = parent ? parent.path + ("," + i) : i.toString();
+        node["aria-setsize"]  = nodes.length;
+        node["aria-posinset"] = i + 1;
+        node["aria-level"]    = 1 + (parent ? parent.path.split(",").length : 0);
+        if (lastNode) {
+          this.nextNodeMap.set(lastNode, node);
+          this.prevNodeMap.set(node, lastNode);
         }
+        this.nodeIdMap.set(node.id, node);
+        this.nodePathMap.set(node.path, node);
+        lastNode = node;
+        const children = [...node].slice(1); // the first elt is always the parent
+        loop(children, node);
       });
-    });
-    // copy over the DOM elt for unchanged nodes, and update their IDs to match
-    oldAST.nodeIdMap.forEach(n => {
-      let newNode = newAST.getNodeByPath(n.path);
-      if(newNode) { n.el.id = 'block-node-' + newNode.id; newNode.el = n.el; }
-    });
-    // If we have a DOM elt, use it and update the id. Mark parents of nodes with DOM elts as dirty
-    newAST.nodeIdMap.forEach(n => { if(!n.el){ dirtyNodes.add(newAST.getNodeParent(n) || n); }});
-    // Ensure that no dirty node is the ancestor of another dirty node
-    let dirty = [...dirtyNodes].sort((a, b) => a.path<b.path? -1 : a.path==b.path? 0 : 1);
-    dirty.reduce((n1, n2) => n2.path.includes(n1.path)? dirtyNodes.delete(n2) && n1 : n2, false);
-    newAST.dirtyNodes = new Set([...dirtyNodes].map(n => newAST.getNodeByPath(n.path)) // grab all the nodes
-      .filter(n => n !== undefined));                                                  // remove deleted ones
-    return newAST;
+    };
+
+    loop(nodes, parent);
   }
 
   getNodeById(id) {
@@ -189,25 +180,71 @@ export class AST {
     }
     return commonSubstring(n1.path, n2.path);
   }
-  // return the next node or false
-  getNodeAfter(selection) {
-    return this.nextNodeMap.get(selection)
-        || this.rootNodes.find(node => poscmp(node.from, selection) >= 0)
-        || false;
+  /**
+   * getNodeAfter : ASTNode -> ASTNode
+   *
+   * Returns the next node or null
+   */
+  getNodeAfter = selection => this.nextNodeMap.get(selection) || null;
+
+  /**
+   * getNodeBefore : ASTNode -> ASTNode
+   *
+   * Returns the previous node or null
+   */
+  getNodeBefore = selection => this.prevNodeMap.get(selection) || null;
+
+  // NOTE: If we have x|y where | indicates the cursor, the position of the cursor
+  // is the same as the position of y's `from`. Hence, going forward requires ">= 0"
+  // while going backward requires "< 0"
+
+  /**
+   * getNodeAfterCur : Cur -> ASTNode
+   *
+   * Returns the next node or null
+   */
+  getNodeAfterCur = cur => this.rootNodes.find(n => poscmp(n.from, cur) >= 0) || null
+
+  /**
+   * getToplevelNodeBeforeCur : Cur -> ASTNode
+   *
+   * Returns the previous toplevel node or null
+   */
+  getToplevelNodeBeforeCur = cur => {
+    return this.reverseRootNodes.find(n => poscmp(n.from, cur) < 0) || null;
   }
-  // return the previous node or false
-  getNodeBefore(selection) {
-    return this.prevNodeMap.get(selection)
-        || this.reverseRootNodes.find(node => poscmp(node.to, selection) <= 0)
-        || false;
+
+  /**
+   * getToplevelNodeAfterCur : Cur -> ASTNode
+   *
+   * Returns the after toplevel node or null
+   */
+  getToplevelNodeAfterCur = this.getNodeAfterCur
+
+  /**
+   * getNodeBeforeCur : Cur -> ASTNode
+   *
+   * Returns the previous node or null
+   */
+  getNodeBeforeCur = cur => {
+    // TODO: this implementation is very inefficient. Once reactify is merged,
+    // we can implement a more efficient version using binary search on an indexing array
+    let result = null;
+    for (const node of this.nodeIdMap.values()) {
+      if (poscmp(node.from, cur) < 0 && (result === null || poscmp(node.from, result.from) >= 0)) {
+        result = node;
+      }
+    }
+    return result;
   }
+
   // return the node containing the cursor, or false
   getNodeContaining(cursor, nodes = this.rootNodes) {
     let n = nodes.find(node => posWithinNode(cursor, node) || nodeCommentContaining(cursor, node));
     return n && ([...n.children()].length === 0 ? n :
                  this.getNodeContaining(cursor, [...n.children()]) || n);
   }
-  // return an array of nodes that fall bwtween two locations
+  // return an array of nodes that fall bewtween two locations
   getNodesBetween(from, to) {
     return [...this.nodeIdMap.values()].filter(n => (poscmp(from, n.from) < 1) && (poscmp(to, n.to) > -1));
   }
@@ -218,10 +255,10 @@ export class AST {
       ( (poscmp(start, node.from) < 0) && (poscmp(end, node.to) > 0) ));
   }
   // return the parent or false
-  getNodeParent(node) {
+  getNodeParent = node => {
     let path = node.path.split(",");
     path.pop();
-    return this.nodePathMap.get(path.join(",")) || ""; 
+    return this.nodePathMap.get(path.join(",")) || false;
   }
   // return the first child, if it exists
   getNodeFirstChild(node) {
@@ -241,15 +278,19 @@ export class AST {
     return this.getClosestNodeFromPath(keyArray);
   }
 
-  // getNextMatchingNode : (ASTNode->ASTNode) (ASTNode->Bool) ASTNode -> ASTNode
-  // Consumes a search function, a test function, and a starting ASTNode. 
-  // Calls searchFn(Start) over and over until testFn(Node)==true 
-  getNextMatchingNode(searchFn, testFn, start) {
-    let nextNode = searchFn(start);
-    while (nextNode && testFn(nextNode)) {
-      nextNode = searchFn(nextNode);
+  /**
+   * getNextMatchingNode : (ASTNode->ASTNode?) (ASTNode->Bool) ASTNode [Bool] -> ASTNode?
+   *
+   * Consumes a search function, a test function, and a starting ASTNode.
+   * Calls searchFn over and over until testFn returns false
+   * If inclusive is false, searchFn is applied right away.
+   */
+  getNextMatchingNode(searchFn, testFn, start, inclusive=false) {
+    let node = inclusive ? start : searchFn(start);
+    while (node && testFn(node)) {
+      node = searchFn(node);
     }
-    return nextNode || start;
+    return node;
   }
 }
 

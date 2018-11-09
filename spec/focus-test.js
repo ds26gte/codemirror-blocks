@@ -3,19 +3,20 @@
 import CodeMirrorBlocks from 'codemirror-blocks/blocks';
 import CodeMirror from 'codemirror';
 import ExampleParser from 'codemirror-blocks/languages/example/ExampleParser';
-import {ISMAC} from 'codemirror-blocks/keymap';
-
 import {
   click,
   blur,
   keydown,
 } from './events';
+import {
+  DOWN,
+  DELETE,
+  SPACE,
+  RIGHTBRACKET,
+} from 'codemirror-blocks/keycode';
 
-// keycodes
-const DOWN_KEY  = 40;
-const DELETE_KEY=  8;
-const SPACE_KEY = 32;
-const RIGHTBRACE= 221;
+import {wait} from './test-utils';
+
 
 // ms delay to let the DOM catch up before testing
 const DELAY = 750;
@@ -28,14 +29,16 @@ const PRESERVE_NEXT_KEYPRESS =
 
 describe('The CodeMirrorBlocks Class', function() {
   beforeEach(function() {
-    document.body.innerHTML = `
-      <textarea id="code"></textarea>
-      <div id="toolbar"></div>
-    `;
+    const fixture = `
+      <div id="root">
+        <textarea id="code"></textarea>
+        <div id="toolbar"></div>
+      </div>`;
+    document.body.insertAdjacentHTML('afterbegin', fixture);
     this.cm = CodeMirror.fromTextArea(document.getElementById("code"));
     this.parser = new ExampleParser();
-    this.willInsertNode = (sourceNodeText, sourceNode, destination) => {
-      let line = this.cm.getLine(destination.line);
+    this.willInsertNode = (cm, sourceNodeText, sourceNode, destination) => {
+      let line = cm.getLine(destination.line);
       let prev = line[destination.ch - 1] || '\n';
       let next = line[destination.ch] || '\n';
       sourceNodeText = sourceNodeText.trim();
@@ -58,9 +61,14 @@ describe('The CodeMirrorBlocks Class', function() {
         toolbar: document.getElementById('toolbar')
       }
     );
-    spyOn(this.blocks, 'insertionQuarantine').and.callThrough();
-    spyOn(this.blocks, 'handleChange').and.callThrough();
-    spyOn(this.cm,     'replaceRange').and.callThrough();
+    this.trackQuarantine   = spyOn(this.blocks, 'makeQuarantineAt').and.callThrough();
+    this.trackHandleChange = spyOn(this.blocks,     'handleChange').and.callThrough();
+    this.trackReplaceRange = spyOn(this.cm,         'replaceRange').and.callThrough();
+    
+  });
+
+  afterEach(function() {
+    document.body.removeChild(document.getElementById("root"));
   });
   
   describe('focusing,', function() {
@@ -74,76 +82,71 @@ describe('The CodeMirrorBlocks Class', function() {
       this.literal3 = this.expression.args[2];
     });
   
-    it('deleting the last node should shift focus to the next-to-last', function(done) {
+    it('deleting the last node should shift focus to the next-to-last', async function() {
       this.literal3.el.dispatchEvent(click());
       expect(document.activeElement).toBe(this.literal3.el);
-      this.literal3.el.dispatchEvent(keydown(SPACE_KEY));
-      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE_KEY));
-      setTimeout(() => {
-        expect(this.cm.getValue()).toBe('(+ 1 2 )');
-        expect(this.blocks.focusPath).toBe("0,2");
-        done();  
-      }, DELAY);
+      this.literal3.el.dispatchEvent(keydown(SPACE));
+      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE));
+      await wait(DELAY);
+      expect(this.cm.getValue()).toBe('(+ 1 2 )');
+      expect(this.blocks.focusPath).toBe("0,2");
     });
 
-    it('deleting the nth node should shift focus to n+1', function(done) {
+    it('deleting the nth node should shift focus to n-1', async function() {
       this.literal2.el.dispatchEvent(click());
       expect(document.activeElement).toBe(this.literal2.el);
-      this.literal2.el.dispatchEvent(keydown(SPACE_KEY));
-      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE_KEY));
-      setTimeout(() => {
-        expect(this.cm.getValue()).toBe('(+ 1  3)');
-        expect(this.blocks.focusPath).toBe("0,2");
-        done();  
-      }, DELAY);
+      this.literal2.el.dispatchEvent(keydown(SPACE));
+      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE));
+      await wait(DELAY);
+      expect(this.cm.getValue()).toBe('(+ 1  3)');
+      expect(this.blocks.focusPath).toBe("0,1");
     });
 
-    it('deleting the multiple nodes should shift focus to the one after', function(done) {
+    it('deleting the multiple nodes should shift focus to the one before the first', async function() {
       this.literal1.el.dispatchEvent(click());            // activate the node,
-      this.literal1.el.dispatchEvent(keydown(SPACE_KEY)); // then select it
-      this.literal1.el.dispatchEvent(PRESERVE_NEXT_KEYPRESS);
-      this.literal2.el.dispatchEvent(TOGGLE_SELECTION_KEYPRESS);
+      this.literal1.el.dispatchEvent(keydown(SPACE)); // then select it
+      this.literal1.el.dispatchEvent(keydown(DOWN, {altKey: true}));
+      this.literal2.el.dispatchEvent(keydown(SPACE, {altKey: true}));
+      await wait(DELAY);
       expect(this.blocks.selectedNodes.size).toBe(2);
-      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE_KEY));
-      setTimeout(() => {
-        expect(this.cm.getValue()).toBe('(+   3)');
-        expect(this.blocks.focusPath).toBe("0,1");
-        done();  
-      }, DELAY);
+      this.cm.getWrapperElement().dispatchEvent(keydown(DELETE));
+      await wait(DELAY);
+      expect(this.cm.getValue()).toBe('(+   3)');
+      expect(this.blocks.focusPath).toBe("0,0");
     });
 
-    it('inserting a node should put focus on the new node', function(done) {
+    // TODO: sometimes this test fails because of some reason
+    it('inserting a node should put focus on the new node', async function() {
       this.literal1.el.dispatchEvent(click());
-      this.literal1.el.dispatchEvent(keydown(RIGHTBRACE, {ctrlKey: true}));
-      setTimeout(() => {
-        let quarantine = document.querySelectorAll('.blocks-editing')[0];
-        let selection = window.getSelection();
-        expect(selection.rangeCount).toEqual(1);
-        let range = selection.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(document.createTextNode('99'));
-        quarantine.dispatchEvent(blur());
-        expect(this.cm.getValue()).toBe('(+ 1 99 2 3)');
-        expect(this.blocks.focusPath).toBe("0,2");
-        done();
-      }, DELAY);
+      this.literal1.el.dispatchEvent(keydown(RIGHTBRACKET, {ctrlKey: true}));
+      await wait(DELAY);
+      let quarantine = this.trackQuarantine.calls.mostRecent().returnValue;
+      let selection = window.getSelection();
+      expect(selection.rangeCount).toEqual(1);
+      let range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode('99'));
+      quarantine.dispatchEvent(blur());
+      await wait(DELAY);
+      expect(this.cm.getValue()).toBe('(+ 1 99 2 3)');
+      expect(this.blocks.focusPath).toBe("0,2");
     });
 
-    it('inserting mulitple nodes should put focus on the last of the new nodes', function(done) {
+    // TODO: sometimes this test fails because of some reason
+    it('inserting mulitple nodes should put focus on the last of the new nodes', async function() {
       this.literal1.el.dispatchEvent(click());
-      this.literal1.el.dispatchEvent(keydown(RIGHTBRACE, {ctrlKey: true}));
-      setTimeout(() => {
-        let quarantine = document.querySelectorAll('.blocks-editing')[0];
-        let selection = window.getSelection();
-        expect(selection.rangeCount).toEqual(1);
-        let range = selection.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(document.createTextNode('99 88 77'));
-        quarantine.dispatchEvent(blur());
-        expect(this.cm.getValue()).toBe('(+ 1 99 88 77 2 3)');
-        expect(this.blocks.focusPath).toBe("0,4");
-        done();
-      }, DELAY);
+      this.literal1.el.dispatchEvent(keydown(RIGHTBRACKET, {ctrlKey: true}));
+      await wait(DELAY);
+      let quarantine = this.trackQuarantine.calls.mostRecent().returnValue;
+      let selection = window.getSelection();
+      expect(selection.rangeCount).toEqual(1);
+      let range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode('99 88 77'));
+      quarantine.dispatchEvent(blur());
+      await wait(DELAY);
+      expect(this.cm.getValue()).toBe('(+ 1 99 88 77 2 3)');
+      expect(this.blocks.focusPath).toBe("0,4");
     });
         
   });

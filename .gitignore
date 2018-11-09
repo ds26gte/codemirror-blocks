@@ -7,5 +7,4 @@ dist
 site-build
 .sass-cache
 vendors
-yarn.lock
-doc/*.html
+.DS_Store
