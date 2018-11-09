@@ -1,6 +1,6 @@
 import {poscmp} from './utils';
 const uuidv4 = require('uuid/v4');
-import {poscmp} from './blocks';
+// import {poscmp} from './blocks';
 
 // Compute the position of the end of a change (its 'to' property refers to the pre-change end).
 // based on https://github.com/codemirror/CodeMirror/blob/master/src/model/change_measurement.js

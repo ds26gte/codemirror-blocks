@@ -1,22 +1,9 @@
 .blocks-language-wescheme {
-  // Import it. It will use the parameters below. Hooray for weird scope.
-  @import "../../less/default-style.less";
-  // Set parameters for standard-style.less
   @border-radius: 5px;
-  @border-width: 2px;
-  // And colors
-  @comment-color: #ddd;
-  @comment-background-color: #444;
-  @border-color: black;
-  @focus-border-color: orange;
-  @error-border-color: red;
-  @border-hint: rgba(255, 165, 0, 0.3);
-  @drag-drop-background-color: lightblue;
-  @drag-replace-background-color: red;
-
-  // Settings for this file
   @large-border-radius: 15px;
-  // And colors
+  @border-width: 2px;
+
+  // Colors:
   @literal-number-color: blue;
   @literal-string-color: green;
   @literal-char-color: orange;
@@ -106,6 +93,7 @@
         /* display a downwards arrow to show sequencing, but not for last child or editing */
         &:not(:last-child):not(.blocks-editing):after { color: gray; content: "\2B07"; }
       }
+    }
   }
 
   .blocks-condExpression,
@@ -186,17 +174,30 @@
     .blocks-literal{ border: @border-width inset; }
   }
 
-}
+  .blocks-args {
+    display: inline-flex;
+    flex-wrap: wrap;
+    flex-grow: 1;
+    padding: 1px 1px 1px 0px;
+    justify-content: center;
 
-// Set the height based on the available screen height.
-// BE CAREFUL WHEN DOING MATH IN LESS.
-// If we had instead written:
-//     @height: 100vh - 50px;
-// that would set @height to 50vh, _by design_.
-// https://github.com/less/less.js/issues/3269
-@height: calc(~"100vh - 300px");
+    > .blocks-literal, .blocks-white-space[contenteditable="true"] {
+      background: white;
+      border: @border-width lightgray inset;
+    }
+  }
+  .blocks-name,
+  .blocks-literal,
+  .blocks-blank {
+    @height: 20px;
 
-.CodeMirror {
+    display: inline-block;
+    color: black;
+    border-radius: 5px;
+    padding: 0px 2px;
+    border: @border-width solid transparent;
+    min-width: 10px;
+    line-height: @height - @border-width * 2;
     height: @height;
     font-size: 12px;
     cursor: pointer;
@@ -372,6 +373,45 @@
     .blocks-white-space{ background-color: transparent; }
   }
 
-#code {
-    height: @height;
+  .blocks-blank {
+    color: white;
+    background: gold;
+    cursor: hand;
+    &:after {
+      content: "?";
+      color: black;
+      display: inline-block;
+      width: 20px;
+    }
+    &.blocks-editing {
+      background: transparent;
+      &:after{content: none; width: 0px; }
+    }
+  }
+  .blocks-node[aria-expanded="false"] {
+    max-height: 30px;
+    min-width: 75px;
+    padding: 3px;
+    background: linear-gradient(to right, rgba(0,0,0,1), rgba(0,0,0,1), rgba(0,0,0,0.3));
+    * { display: none;}
+    .blocks-operator, .blocks-operator * { 
+      display: inline;
+      padding: 0px;
+      margin: 0px;
+      border: none;
+      font-weight: bold;
+      line-height: 20px;
+      color: white;
+      background: none;
+      text-align: left;
+    }
+  }
+  .blocks-node[aria-expanded="true"] .blocks-identifierList[aria-expanded="false"]:before{
+      content: "...";
+      color: white;
+  }
+  .blocks-locked {
+    opacity: 0.5;
+  }
+  .blocks-locked::after{ content: "\1f512" !important; z-index: 99;}
 }

@@ -3,7 +3,7 @@ import CodeMirror from 'codemirror';
 import ee from 'event-emitter';
 import Renderer from './Renderer';
 import { commands } from './commands';
-import { ISMAC, keyMap } from './keymap';
+// import { ISMAC, keyMap } from './keymap';
 import * as languages from './languages';
 import * as ui from './ui';
 import merge from './merge';
