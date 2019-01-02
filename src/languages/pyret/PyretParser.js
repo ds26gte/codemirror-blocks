@@ -7,7 +7,12 @@ import {
   Literal,
   Sequence
 } from '../../ast.js';
-import {Binop, ABlank, Bind, Func} from "./ast.js"
+import {Binop, ABlank, Bind, Func,
+  Sekwence,
+  Var,
+  Assign,
+  Let
+} from "./ast.js"
 
 // TODO: This should be defined somewhere else; not sure where yet
 class Position {
@@ -48,7 +53,13 @@ const opLookup = {
   "<=>": "op<=>",
   "<>":  "op<>",
   "and": "opand",
-  "or":  "opor"
+  "or":  "opor",
+  //used in pyret-lang/translate-parse-tree.js
+  "is":  function(l, node) {
+    console.log('OL doing is', l, node)
+    return makeNode("s-op-is", l);
+  }
+  // see parse-pyret.js in pyret-lang
   // TODO: check ops
 }
 
@@ -59,6 +70,7 @@ const nodeTypes = {
     return new AST(rootNodes);
   },
   "s-name": function(pos, str) {
+    console.log('doing s-name Literal')
     return new Literal(
       pos.from,
       pos.to,
@@ -66,6 +78,7 @@ const nodeTypes = {
       'symbol');
   },
   "s-id": function(pos, str) {
+    console.log('doing s-id Literal')
     return new Literal(
       pos.from,
       pos.to,
@@ -73,6 +86,7 @@ const nodeTypes = {
       'symbol');
   },
   "s-num": function(pos, x) {
+    //console.log('doing s-num Literal')
     return new Literal(
       pos.from,
       pos.to,
@@ -80,13 +94,25 @@ const nodeTypes = {
       'number');
   },
   "s-block": function(pos, stmts) {
-    return new Sequence(
+    //console.log('doing s-block', stmts)
+    //Sequence or Sekwence?
+    return new Sekwence(
       pos.from,
       pos.to,
       stmts,
-      'block');
+      'BLOCK');
+  },
+  "s-user-block": function(pos, stmts) {
+    console.log('doing s-user-block', stmts)
+    //Sequence or Sekwence?
+    return new Sekwence(
+      pos.from,
+      pos.to,
+      stmts.exprs,
+      'BLOCK');
   },
   "s-op": function(pos, opPos, op, left, right) {
+    console.log('doing s-op', 'pos=', pos, 'opPos=', opPos, 'op=', op, 'left=', left, 'right=', right)
     return new Binop(
       pos.from,
       pos.to,
@@ -94,13 +120,64 @@ const nodeTypes = {
       left,
       right);
   },
+  's-op-is': function(pos) {
+    console.log('doing s-op-is', 'pos=', pos)
+    return new Literal(
+      pos.from,
+      pos.to,
+      'is',
+      'symbol')
+  },
+  's-check': function(pos, name, body, kwdchk) {
+    //console.log('P doing s-check', 'pos=', pos, 'name=', name, 'body=', body, 'kwdchk=', kwdchk)
+    //Sekw?
+    return new Sequence(
+      pos.from,
+      pos.to,
+      body.exprs,
+      'CHECK')
+  },
+  's-check-test': function(pos, op, what, lhs, rhs) {
+    //console.log('P doing s-check-test', 'pos=', pos, 'op=', op, 'what=', what, 'lhs=', lhs, 'rhs=', rhs)
+    return new Binop(
+      pos.from,
+      pos.to,
+      op,
+      lhs,
+      rhs)
+  },
   "s-bind": function(pos, shadows, id, ann) {
     // TODO: ignoring shadowing for now.
+      //console.log('doing s-bind', id)
     return new Bind(
       pos.from,
       pos.to,
       id,
       ann);
+  },
+  's-var': function(pos, id, rhs) {
+    console.log('doing s-var', id, rhs)
+    return new Var(
+      pos.from,
+      pos.to,
+      id,
+      rhs);
+  },
+  's-assign': function(pos, id, rhs) {
+    console.log('doing s-assign', id, rhs)
+    return new Var(
+      pos.from,
+      pos.to,
+      id,
+      rhs);
+  },
+  's-let': function(pos, id, rhs) {
+    console.log('doing s-let', id, rhs)
+    return new Let(
+      pos.from,
+      pos.to,
+      id,
+      rhs);
   },
   "s-fun": function(pos, name, params, args, ann, doc, body, checkLoc, check, blodky) {
     // TODO: ignoring params, check, blocky
@@ -118,6 +195,7 @@ const nodeTypes = {
     return new ABlank();
   },
   "a-name": function(pos, str) {
+    console.log('doing a-name Literal')
     return new Literal(
       pos.from,
       pos.to,
