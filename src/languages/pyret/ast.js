@@ -1,4 +1,4 @@
-import {ASTNode, pluralize, descDepth} from '../../ast';
+import {ASTNode, pluralize, descDepth, enumerateList} from '../../ast';
 
 // TODO: toDescription
 
@@ -48,10 +48,89 @@ export class Func extends ASTNode {
   }
 }
 
+export class Sekwence extends ASTNode {
+  constructor(from, to, exprs, name, options={}) {
+    console.log('constructing Sekwence', from, to, exprs, name)
+    super(from, to, 'sekwence', ['exprs'], options);
+    this.exprs = exprs;
+    this.name = name;
+  }
+
+  toDescription(level) {
+    if((this['aria-level'] - level) >= descDepth) return this.options['aria-label'];
+    return `a sequence containing ${enumerateList(this.exprs, level)}`;
+  }
+
+  toString() {
+    return `block: ${this.exprs.join(" ")} end`;
+  }
+}
+
+export class Var extends ASTNode {
+  constructor(from, to, id, rhs, options={}) {
+    super(from, to, 'var', ['id', 'rhs'], options);
+    this.id = id;
+    this.rhs = rhs;
+  }
+
+
+  toDescription(level) {
+    if((this['aria-level'] - level) >= descDepth) return this.options['aria-label'];
+    return `a var setting ${this.id} to ${this.rhs}`;
+  }
+
+  toString() {
+    return `var ${this.id} === ${this.rhs}`;
+  }
+
+}
+
+export class Assign extends ASTNode {
+  constructor(from, to, id, rhs, options={}) {
+    super(from, to, 'assign', ['id', 'rhs'], options);
+    this.id = id;
+    this.rhs = rhs;
+  }
+
+
+  toDescription(level) {
+    if((this['aria-level'] - level) >= descDepth) return this.options['aria-label'];
+    return `an assignment setting ${this.id} to ${this.rhs}`;
+  }
+
+  toString() {
+    return `${this.id} := ${this.rhs}`;
+  }
+
+}
+
+export class Let extends ASTNode {
+  constructor(from, to, id, rhs, options={}) {
+    super(from, to, 'let', ['id', 'rhs'], options);
+    this.id = id;
+    this.rhs = rhs;
+  }
+
+
+  toDescription(level) {
+    if((this['aria-level'] - level) >= descDepth) return this.options['aria-label'];
+    return `a let setting ${this.id} to ${this.rhs}`;
+  }
+
+  toString() {
+    return `${this.id} = ${this.rhs}`;
+  }
+
+}
+
 // TODO: Why does this not work if I just say `export class ...`?
 module.exports = {
   'Binop': Binop,
   'ABlank': ABlank,
   'Bind': Bind,
-  'Func': Func
+  'Func': Func,
+  'Sekwence': Sekwence,
+  'Var': Var,
+  'Assign': Assign,
+  'Let': Let
 };

@@ -1,3 +1,4 @@
+//compare to parse-pyret.js in pyret-lang
   
   function translate(ast, fileName, constructors) {
     // makeNode will be called on the node name, followed by the node args
@@ -407,22 +408,28 @@
         }
       },
       'check-test': function(node) {
+        //console.log('T doing check-test', node)
         var kids = node.kids;
         if (kids.length === 1) {
+          console.log('kl = 1')
           // (check-test e)
           return tr(kids[0]);
         } else if (kids.length === 2) {
+          console.log('kl = 2')
           // (check-test left op)
           //             0    1
           return makeNode('s-check-test',
                       pos(node.pos), tr(kids[1]), makeNone(), tr(kids[0]), makeNone());
         } else if (kids.length === 3) {
+          console.log('kl = 3')
+          console.log('I=', tr(kids[1]), 'II=', tr(kids[0]),  'III=', tr(kids[2]))
           // (check-test left op right)
           //             0    1  2
           return makeNode('s-check-test',
                       pos(node.pos), tr(kids[1]), makeNone(), tr(kids[0]), makeSome(tr(kids[2])));
         }
         else {
+          console.log('kl = oo')
           // (check-test left op PERCENT LPAREN refinement RPAREN right)
           //             0    1                 4                 6
           return makeNode('s-check-test',
@@ -471,10 +478,12 @@
         }
       },
       'check-op': function(node) {
+        console.log('doing check-op', node)
         // (check-op str)
         var opname = String(node.kids[0].value).trim();
+        console.log('opLookup of2', opname, '=', opLookup[opname])
         if (opLookup[opname]) {
-          return opLookup[opname](pos(node.pos));
+          return opLookup[opname](pos(node.pos), node);
         }
         else {
           throw "Unknown operator: " + opname;
@@ -510,6 +519,7 @@
       'binop': function(node) {
         // (binop str)
         var opname = String(node.kids[0].value).trim();
+        //console.log('binop opLookup of', opname, '=', opLookup[opname])
         if(opLookup[opname]) {
           return opLookup[opname];
         }

@@ -13,6 +13,7 @@ export default class Literal extends Component {
     }).isRequired,
   }
   render() {
+    console.log('rendering Literal', this.props)
     const {node, lockedTypes, helpers} = this.props;
     return (
       <Node node={node} lockedTypes={lockedTypes} helpers={helpers}>

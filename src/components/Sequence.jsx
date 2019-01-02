@@ -17,6 +17,8 @@ export default class Sequence extends Component {
   render() {
     const {node, helpers, lockedTypes} = this.props;
     const exprNodes = [];
+    //console.log('Sequence/node=', node)
+    //console.log('Sequence/node.exprs=', node.exprs)
     node.exprs.forEach((expr, index) => {
       exprNodes.push(helpers.renderNodeForReact(expr, 'node-'+index));
       exprNodes.push(

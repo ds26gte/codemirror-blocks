@@ -74,6 +74,8 @@ export default class Renderer {
       var top, left, width, height;
       clones.forEach((clone, i) => {
         let node = nodes[i];
+        //console.log('assignClonePosition/node=', node)
+        //console.log('assignClonePosition/node.el=', node.el)
         // compute position in raw CM text - avoid DOM by using cm.charCoords
         if(textPosition) {
           let startCoord = cm.charCoords(node.from, "window"), endCoord = cm.charCoords(node.to, "window");
@@ -177,6 +179,7 @@ export default class Renderer {
   }
 
   renderNodeForReact = (node, key) => {
+    //console.log('doing renderNodeForReact', 'node=', node, 'key=', key)
     this.renderNodeForReact.defaultProps = { displayName: 'ASTNode Renderer' };
     var Renderer = this.extraRenderers[node.type] || this.nodeRenderers[node.type];
     if (Renderer === undefined) {
